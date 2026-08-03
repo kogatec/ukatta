@@ -2,12 +2,18 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
+// z.string().uuid() はRFC4122のバージョン/バリアントビットまで検証するが、
+// Postgresのuuid型自体はその意味的検証をしない（開発用の連番シードIDも通したい）。
+const uuidLike = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "invalid uuid");
+
 const targetSchema = z.object({
-  school_id: z.string().uuid(),
-  department_id: z.string().uuid().optional(),
+  school_id: uuidLike,
+  department_id: uuidLike.optional(),
   priority: z.number().int().min(1).max(3),
   exam_subjects: z
-    .array(z.object({ subject_id: z.string().uuid(), weight_points: z.number() }))
+    .array(z.object({ subject_id: uuidLike, weight_points: z.number() }))
     .default([]),
 });
 
