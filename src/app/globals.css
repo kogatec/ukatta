@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fdfeff;
+  --surface: #ffffff;
+  --sky: #f0f5fd;
+  --line: #dee7f5;
+  --foreground: #0e1526;
+  --muted: #5b6b8c;
+  --brand-600: #2b5fd9;
+  --brand-500: #3d6fe0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-sky: var(--sky);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-brand-600: var(--brand-600);
+  --color-brand-500: var(--brand-500);
+  --font-sans: -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
