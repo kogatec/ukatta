@@ -4,10 +4,8 @@
 //   大学: https://github.com/shjimb/japanese-universities-list (jp_{national,public,private}_univ.txt)
 // 偏差値・ランキング等の評価情報は一切取り込まない（DESIGN.md §1の権利設計・§13のデータ最小化方針に合わせる）。
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const tmp = "/tmp";
 
 // --- RFC4180簡易CSVパーサ（このデータセットにクォート混在は無いが念のため対応） ---
