@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { updateMastery, masteryOf, isMisconception, type MasteryState } from "./mastery.ts";
+import {
+  updateMastery,
+  masteryOf,
+  isMisconception,
+  conditionWeight,
+  type MasteryState,
+} from "./mastery.ts";
 
 /** 再現性のある擬似乱数（テストを不安定にしないため） */
 function seededRandom(seed: number) {
@@ -81,4 +87,61 @@ test("誤答×高確信は誤概念として検出され、より強く減点さ
   assert.equal(isMisconception(misconception), true);
   assert.equal(isMisconception(plainMiss), false);
   assert.ok(updateMastery(base, misconception).beta > updateMastery(base, plainMiss).beta);
+});
+
+test("conditionWeight: 週次1.5・日次1.0・復習0.5、未指定は1.0（後方互換）", () => {
+  assert.equal(conditionWeight("weekly_test"), 1.5);
+  assert.equal(conditionWeight("daily_drill"), 1.0);
+  assert.equal(conditionWeight("review_session"), 0.5);
+  assert.equal(conditionWeight(undefined), 1.0);
+});
+
+test("測定条件により、同じ誤答でも減点幅が変わる（週次 > 日次 > 復習）", () => {
+  const base: MasteryState = { alpha: 3, beta: 3 };
+  const weekly = updateMastery(base, {
+    correct: false,
+    format: "mark",
+    selfConfidence: null,
+    measurementContext: "weekly_test",
+  });
+  const daily = updateMastery(base, {
+    correct: false,
+    format: "mark",
+    selfConfidence: null,
+    measurementContext: "daily_drill",
+  });
+  const review = updateMastery(base, {
+    correct: false,
+    format: "mark",
+    selfConfidence: null,
+    measurementContext: "review_session",
+  });
+
+  assert.ok(weekly.beta > daily.beta, `weekly=${weekly.beta}, daily=${daily.beta}`);
+  assert.ok(daily.beta > review.beta, `daily=${daily.beta}, review=${review.beta}`);
+});
+
+test("measurementContext未指定はdaily_drill相当（既存呼び出しとの後方互換）", () => {
+  const base: MasteryState = { alpha: 3, beta: 3 };
+  const omitted = updateMastery(base, { correct: false, format: "mark", selfConfidence: null });
+  const explicit = updateMastery(base, {
+    correct: false,
+    format: "mark",
+    selfConfidence: null,
+    measurementContext: "daily_drill",
+  });
+  assert.equal(omitted.beta, explicit.beta);
+});
+
+test("weight（難易度×新しさ）と条件重みは掛け合わされる", () => {
+  const base: MasteryState = { alpha: 3, beta: 3 };
+  const r = updateMastery(base, {
+    correct: false,
+    format: "mark",
+    selfConfidence: null,
+    weight: 2,
+    measurementContext: "weekly_test",
+  });
+  // weight=2 × conditionWeight(weekly_test)=1.5 × penalty=1 = 3
+  assert.equal(r.beta, base.beta + 3);
 });

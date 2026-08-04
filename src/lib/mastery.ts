@@ -5,6 +5,7 @@
 // そこで「正答したが、まぐれだったかもしれない」分を割り引いて計上する。
 
 import type { QuestionFormat } from "./questions/types";
+import type { MeasurementContext } from "./weekly-cycle/types";
 
 export interface MasteryState {
   alpha: number;
@@ -18,6 +19,26 @@ export interface MasteryUpdateInput {
   selfConfidence: number | null;
   /** 難易度重み × 新しさ重み（DESIGN.md §6.1 の w） */
   weight?: number;
+  /**
+   * 週次テスト・日次ドリル・復習セッションのどれで得た結果か（learning-cycle.md §5）。
+   * 省略時は条件重み 1.0（daily_drill 相当）として扱う。
+   */
+  measurementContext?: MeasurementContext;
+}
+
+/**
+ * 測定条件による重み（learning-cycle.md §5）。
+ * 週次テストは「何が出るか分からない状態・本番の時間制約」で解くため最も信頼できる。
+ * 復習セッションは解説直後の再テストで短期記憶が効くため、実力を過大評価しやすい。
+ */
+export const CONDITION_WEIGHT: Record<MeasurementContext, number> = {
+  weekly_test: 1.5,
+  daily_drill: 1.0,
+  review_session: 0.5,
+};
+
+export function conditionWeight(context: MeasurementContext | undefined): number {
+  return context ? CONDITION_WEIGHT[context] : 1.0;
 }
 
 /** 5択の素の推測確率 */
@@ -61,7 +82,7 @@ export function updateMastery(
   state: MasteryState,
   input: MasteryUpdateInput
 ): MasteryState {
-  const w = input.weight ?? 1;
+  const w = (input.weight ?? 1) * conditionWeight(input.measurementContext);
   const c = guessRate(input.format, input.selfConfidence);
 
   if (!input.correct) {
