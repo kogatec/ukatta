@@ -27,9 +27,10 @@ const STAGE_PROFILES: Record<ExamStage, StageProfile> = {
   },
   final: {
     stage: "final",
-    // 直前期は本番同一構成。科目数は呼び出し側で「受験科目全数」を渡す想定のため、
-    // ここでは目安の下限だけを示す（実際の選出は selectWeeklySubjects 側で全科目を対象にする）。
-    subjectCount: 99,
+    // 「本番同一構成」が指すのは通常の週次ローテーションの規模（1回あたりの長さ・構成）。
+    // 「全科目通し」は月1回の別枠シミュレーション（monthlyFullSimulation）であり、
+    // 毎週のローテーション科目数を全科目にするという意味ではない。
+    subjectCount: 2,
     timeLimitMinRange: [60, 120],
     dailyMinutes: 30,
     monthlyFullSimulation: true,
