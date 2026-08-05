@@ -200,6 +200,17 @@ export default async function Home() {
           )}
         </div>
 
+        <Link
+          href="/friends"
+          className="mt-6 flex items-center justify-between rounded-md border border-line bg-surface px-5 py-4 transition-colors hover:border-brand-600"
+        >
+          <div>
+            <p className="text-xs text-muted">フレンド</p>
+            <p className="mt-0.5 text-sm font-semibold text-foreground">友達の連続学習日数を見る</p>
+          </div>
+          <span className="text-brand-600">→</span>
+        </Link>
+
         <form action={signOut} className="mt-8">
           <button
             type="submit"

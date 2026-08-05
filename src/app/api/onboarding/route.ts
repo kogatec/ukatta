@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { uuidLike } from "@/lib/validation";
+import { uuidLike, usernameSchema } from "@/lib/validation";
 
 const targetSchema = z.object({
   school_id: uuidLike,
@@ -14,6 +14,7 @@ const targetSchema = z.object({
 
 const bodySchema = z.object({
   display_name: z.string().min(1).max(50),
+  username: usernameSchema,
   grade_level: z.enum(["jhs1", "jhs2", "jhs3", "hs1", "hs2", "hs3", "ronin"]),
   exam_track: z.enum(["highschool", "university"]),
   exam_date: z
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { display_name, grade_level, exam_track, exam_date, is_minor, targets } = parsed.data;
+  const { display_name, username, grade_level, exam_track, exam_date, is_minor, targets } = parsed.data;
 
   const { data: existing } = await supabase
     .from("users")
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
     .insert({
       auth_id: authUser.id,
       display_name,
+      username,
       grade_level,
       exam_track,
       exam_date: exam_date ?? null,
@@ -65,6 +67,13 @@ export async function POST(request: Request) {
     .single();
 
   if (userError || !newUser) {
+    // 23505 = unique_violation。username重複を分かりやすい日本語で返す。
+    if (userError && "code" in userError && userError.code === "23505") {
+      return NextResponse.json(
+        { error: "そのユーザー名はすでに使われています" },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       { error: userError?.message ?? "failed to create user" },
       { status: 500 }

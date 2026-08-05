@@ -16,6 +16,15 @@ export const uuidLike = z
  * `//evil.example` や `/\evil.example` はブラウザがプロトコル相対URLとして
  * 外部ホストに解釈するため、先頭が `/` であることだけでは不十分。
  */
+/**
+ * フレンド追加用のユーザー名。
+ * 英数字とアンダースコアのみ、3〜20文字。DBの users_username_format と一致させる。
+ * 大文字小文字は区別しない（DB側の一意インデックスは lower(username) で張っている）。
+ */
+export const usernameSchema = z
+  .string()
+  .regex(/^[a-zA-Z0-9_]{3,20}$/, "半角英数字とアンダースコア、3〜20文字で入力してください");
+
 export function safeNextPath(next: string | null | undefined, fallback = "/"): string {
   if (!next) return fallback;
   if (!next.startsWith("/")) return fallback;

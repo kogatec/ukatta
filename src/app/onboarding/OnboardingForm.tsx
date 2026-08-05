@@ -22,9 +22,13 @@ interface SchoolOption {
   deviation: number | null;
 }
 
+// ユーザー名の形式チェック（サーバー側 usernameSchema と一致）
+const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,20}$/;
+
 export default function OnboardingForm() {
   const router = useRouter();
   const [displayName, setDisplayName] = useState("");
+  const [username, setUsername] = useState("");
   const [grade, setGrade] = useState<GradeLevel | null>(null);
   const [examDate, setExamDate] = useState("");
   const [query, setQuery] = useState("");
@@ -58,7 +62,7 @@ export default function OnboardingForm() {
   }
 
   async function handleSubmit() {
-    if (!grade || !track || !selectedSchool || !displayName.trim()) return;
+    if (!grade || !track || !selectedSchool || !displayName.trim() || !USERNAME_PATTERN.test(username)) return;
     setSubmitting(true);
     setError(null);
 
@@ -67,6 +71,7 @@ export default function OnboardingForm() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         display_name: displayName.trim(),
+        username,
         grade_level: grade,
         exam_track: track,
         exam_date: examDate || undefined,
@@ -93,7 +98,7 @@ export default function OnboardingForm() {
 
   return (
     <div className="w-full max-w-md">
-      <p className="font-mono text-xs tracking-widest text-brand-600">Step 1 / 3</p>
+      <p className="font-mono text-xs tracking-widest text-brand-600">Step 1 / 4</p>
       <h2 className="mt-2 text-lg font-bold text-foreground">呼び方を教えてください</h2>
       <input
         value={displayName}
@@ -102,7 +107,23 @@ export default function OnboardingForm() {
         className="mt-3 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand-600"
       />
 
-      <p className="mt-8 font-mono text-xs tracking-widest text-brand-600">Step 2 / 3</p>
+      <p className="mt-8 font-mono text-xs tracking-widest text-brand-600">Step 2 / 4</p>
+      <h2 className="mt-2 text-lg font-bold text-foreground">ユーザー名を決めてください</h2>
+      <p className="mt-1 text-xs text-muted">友達がこの名前であなたを追加します。半角英数字とアンダースコア、3〜20文字。あとから変更できません。</p>
+      <input
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="例: keiichiro04"
+        autoCapitalize="none"
+        autoComplete="off"
+        spellCheck={false}
+        className="mt-3 w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-sm outline-none focus:border-brand-600"
+      />
+      {username.length > 0 && !USERNAME_PATTERN.test(username) && (
+        <p className="mt-1 text-xs text-red-600">半角英数字とアンダースコア、3〜20文字で入力してください</p>
+      )}
+
+      <p className="mt-8 font-mono text-xs tracking-widest text-brand-600">Step 3 / 4</p>
       <h2 className="mt-2 text-lg font-bold text-foreground">学年を教えてください</h2>
       <div className="mt-3 grid grid-cols-4 gap-2">
         {GRADES.map((g) => (
@@ -128,7 +149,7 @@ export default function OnboardingForm() {
 
       {grade && (
         <>
-          <p className="mt-8 font-mono text-xs tracking-widest text-brand-600">Step 3 / 3</p>
+          <p className="mt-8 font-mono text-xs tracking-widest text-brand-600">Step 4 / 4</p>
           <h2 className="mt-2 text-lg font-bold text-foreground">
             第一志望の{track === "highschool" ? "高校" : "大学"}を検索
           </h2>
@@ -187,7 +208,7 @@ export default function OnboardingForm() {
 
       <button
         type="button"
-        disabled={!displayName.trim() || !selectedSchool || submitting}
+        disabled={!displayName.trim() || !USERNAME_PATTERN.test(username) || !selectedSchool || submitting}
         onClick={handleSubmit}
         className="mt-8 w-full rounded-md bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
       >
