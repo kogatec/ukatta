@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { publicChoices } from "@/lib/questions/publicView";
+import type { QuestionFormat } from "@/lib/questions/types";
 import { weekStartOf } from "@/lib/weekly-cycle/week";
 import { daysUntil } from "@/lib/date";
 import { examStageFromDaysLeft, stageProfile } from "@/lib/weekly-cycle/examStage";
@@ -68,17 +70,17 @@ export async function GET() {
     .maybeSingle();
 
   if (existing) {
-    const { data: items } = await admin
+    // 前回の生成時点で配信可能な問題が1問も無かった場合、そのまま返すと
+    // 「後から問題プールが増えても一生空のまま」になってしまう。
+    // まだ手を付けていない（pending）空ミッションに限り、削除して作り直す。
+    const { count: existingItemCount } = await admin
       .from("daily_mission_items")
-      .select("id, question_id, subject_id, layer, order_no, attempt_id")
-      .eq("daily_mission_id", existing.id)
-      .order("order_no");
-    return NextResponse.json({
-      daily_mission_id: existing.id,
-      status: existing.status,
-      estimated_minutes: existing.estimated_minutes,
-      items: items ?? [],
-    });
+      .select("id", { count: "exact", head: true })
+      .eq("daily_mission_id", existing.id);
+    if ((existingItemCount ?? 0) > 0 || existing.status !== "pending") {
+      return buildMissionResponse(admin, existing.id, existing.status, existing.estimated_minutes);
+    }
+    await admin.from("daily_missions").delete().eq("id", existing.id);
   }
 
   const { data: target } = await supabase
@@ -237,16 +239,90 @@ export async function GET() {
     await admin.from("daily_mission_items").insert(rows);
   }
 
+  return buildMissionResponse(admin, mission.id, mission.status, mission.estimated_minutes);
+}
+
+interface QuestionJoin {
+  id: string;
+  format: QuestionFormat;
+  body_md: string;
+  choices: unknown;
+  answer: unknown;
+  explanation_md: string;
+  est_time_sec: number;
+}
+
+interface MissionItemRow {
+  id: string;
+  order_no: number;
+  layer: string;
+  subject_id: string;
+  question_id: string;
+  attempt_id: string | null;
+  questions: QuestionJoin | QuestionJoin[] | null;
+}
+
+function oneQuestion(q: MissionItemRow["questions"]): QuestionJoin | null {
+  if (!q) return null;
+  return Array.isArray(q) ? q[0] ?? null : q;
+}
+
+/**
+ * 日次ミッションの出題を組み立てる。週次テストと違い「単元が分かっている」前提の
+ * 演習なので、解答済みの設問は即座に正誤・解説を開示する（未解答分のみ隠す）。
+ */
+async function buildMissionResponse(
+  admin: SupabaseClient,
+  missionId: string,
+  status: string,
+  estimatedMinutes: number
+) {
+  const { data: items } = await admin
+    .from("daily_mission_items")
+    .select(
+      "id, order_no, layer, subject_id, question_id, attempt_id, questions(id, format, body_md, choices, answer, explanation_md, est_time_sec)"
+    )
+    .eq("daily_mission_id", missionId)
+    .order("order_no");
+
+  const attemptIds = (items ?? [])
+    .map((i) => (i as unknown as MissionItemRow).attempt_id)
+    .filter((id): id is string => !!id);
+  const { data: attempts } = attemptIds.length
+    ? await admin.from("attempts").select("id, is_correct, awarded_points, error_tag").in("id", attemptIds)
+    : { data: [] as { id: string; is_correct: boolean; awarded_points: number; error_tag: string | null }[] };
+  const attemptById = new Map((attempts ?? []).map((a) => [a.id, a]));
+
+  const responseItems = (items ?? []).flatMap((row) => {
+    const r = row as unknown as MissionItemRow;
+    const q = oneQuestion(r.questions);
+    if (!q) return [];
+    const attempt = r.attempt_id ? attemptById.get(r.attempt_id) : undefined;
+    const revealed = !!attempt;
+    return [
+      {
+        id: r.id,
+        order_no: r.order_no,
+        layer: r.layer,
+        subject_id: r.subject_id,
+        question_id: r.question_id,
+        format: q.format,
+        body_md: q.body_md,
+        est_time_sec: q.est_time_sec,
+        choices: revealed ? q.choices : publicChoices(q.format, q.choices, q.answer),
+        explanation_md: revealed ? q.explanation_md : undefined,
+        answered: revealed,
+        correct: revealed ? attempt!.is_correct : null,
+        error_tag: revealed ? attempt!.error_tag : null,
+      },
+    ];
+  });
+
   return NextResponse.json({
-    daily_mission_id: mission.id,
-    status: mission.status,
-    estimated_minutes: mission.estimated_minutes,
-    items: plannedItems.map((p, idx) => ({
-      order_no: idx + 1,
-      question_id: p.questionId,
-      subject_id: p.subjectId,
-      layer: p.layer,
-    })),
+    daily_mission_id: missionId,
+    status,
+    estimated_minutes: estimatedMinutes,
+    items: responseItems,
   });
 }
 

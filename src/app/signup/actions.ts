@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { appOrigin } from "@/lib/app-url";
 
 export async function signUp(formData: FormData) {
   const email = String(formData.get("email") ?? "");
@@ -16,7 +17,7 @@ export async function signUp(formData: FormData) {
     email,
     password,
     options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/confirm`,
+      emailRedirectTo: `${appOrigin()}/auth/confirm`,
     },
   });
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { selectFocusUnits } from "@/lib/weekly-cycle/weeklyReview";
+import { addDays } from "@/lib/weekly-cycle/week";
 import type { UnitPriorityCandidate } from "@/lib/weekly-cycle/types";
 
 // 週次テストの分析 → 翌週の重点単元決定（設計: docs/learning-cycle.md §3）
@@ -13,12 +14,6 @@ import type { UnitPriorityCandidate } from "@/lib/weekly-cycle/types";
 // 出題頻度・配点シェアは past_paper_items（過去問メタデータ、著作権フリー）から集計する。
 // データが無い科目（過去問メタデータ未収集）は、頻度・配点を中立値1.0として扱い、
 // 苦手度のみでランキングする（全単元が同点0になる事故を防ぐ）。
-
-function addDaysToDateStr(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 export async function POST(
   request: Request,
@@ -154,7 +149,7 @@ export async function POST(
   const focusUnits = selectFocusUnits(candidates);
 
   // ---- 翌週の計画行を find-or-create し、重点単元を書き込む ----
-  const nextWeekStart = addDaysToDateStr(plan.week_start, 7);
+  const nextWeekStart = addDays(plan.week_start, 7);
   const { data: existingNextPlan } = await admin
     .from("weekly_plans")
     .select("id")

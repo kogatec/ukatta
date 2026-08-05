@@ -34,7 +34,8 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-  const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  // "/" は未ログイン時はLP、ログイン時はホームを出し分けるため公開パス扱いにする（page.tsx側で分岐）。
+  const isPublicPath = pathname === "/" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();

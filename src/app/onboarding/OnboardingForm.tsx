@@ -87,7 +87,7 @@ export default function OnboardingForm() {
       return;
     }
 
-    router.push("/");
+    router.push("/diagnostic");
     router.refresh();
   }
 

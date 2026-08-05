@@ -11,7 +11,8 @@ import type {
   QuestionFormat,
 } from "@/lib/questions/types";
 import { updateMastery, CONDITION_WEIGHT } from "@/lib/mastery";
-import { nextReviewState, type ReviewQueueState } from "@/lib/review-schedule";
+import { nextReviewState, applyExamProximityCompression, type ReviewQueueState } from "@/lib/review-schedule";
+import { daysUntil } from "@/lib/date";
 import type { MeasurementContext } from "@/lib/weekly-cycle/types";
 
 // 解答記録API（設計: docs/question-format.md §5, docs/learning-cycle.md §5）
@@ -59,19 +60,22 @@ export async function POST(request: Request) {
 
   const { data: appUser } = await supabase
     .from("users")
-    .select("id")
+    .select("id, exam_date")
     .eq("auth_id", authUser.id)
     .maybeSingle();
   if (!appUser) {
     return NextResponse.json({ error: "onboarding not completed" }, { status: 404 });
   }
+  const daysUntilExam = appUser.exam_date ? daysUntil(appUser.exam_date) : null;
 
   // ---- 出題元（模試 or 日次ミッション）から points・測定条件を確定する ----
   // question_id はクライアントが送るが、item側の question_id と突き合わせて検証する
   // （なりすまし・古い状態のクライアントによる不整合を防ぐ）。
   let points = 1;
+  // 診断テストは「範囲を知らない状態で解く」という点で週次テストと同じ条件のため、
+  // 重み(weekly_test)を高く扱う（docs/learning-cycle.md §5）。
   let measurementContext: MeasurementContext =
-    context === "review" ? "review_session" : "daily_drill";
+    context === "review" ? "review_session" : context === "diagnostic" ? "weekly_test" : "daily_drill";
 
   if (mock_item_id) {
     const { data: item } = await supabase
@@ -107,10 +111,16 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data: question } = await supabase
+  // 採点には正答が要るが、questions は生徒に読み取り権限が無い
+  // （正答をDB直叩きで抜かれるのを防ぐため、RLSの公開読み取りを廃止した）。
+  // 採点・習熟度更新はいずれもservice roleで行う。
+  const admin = createAdminClient();
+
+  const { data: question } = await admin
     .from("questions")
-    .select("format, choices, answer, distractors, explanation_md")
+    .select("format, choices, answer, distractors, explanation_md, license_status")
     .eq("id", question_id)
+    .eq("license_status", "deliverable")
     .maybeSingle();
   if (!question) {
     return NextResponse.json({ error: "question not found or not deliverable" }, { status: 404 });
@@ -155,8 +165,6 @@ export async function POST(request: Request) {
   }
 
   // ---- 習熟度・復習キューの更新はservice role（生徒本人はRLSで書き込めない） ----
-  const admin = createAdminClient();
-
   const { data: tags } = await supabase
     .from("question_tags")
     .select("skill_tag_id")
@@ -193,11 +201,10 @@ export async function POST(request: Request) {
       { onConflict: "user_id,skill_tag_id" }
     );
 
-    // 復習キュー: 簡易スケジューラ（review-schedule.ts、FSRS本実装までの暫定）。
-    // stability列をFSRSの意味では使わず、暫定スケジューラの「直前の間隔（日数）」として流用している。
+    // 復習キュー: FSRS（review-schedule.ts）で次回復習日を計算する。
     const { data: rqRow } = await admin
       .from("review_queue")
-      .select("due_at, state, reps, lapses, stability")
+      .select("due_at, state, reps, lapses, stability, difficulty, last_review_at")
       .eq("user_id", appUser.id)
       .eq("skill_tag_id", skillTagId)
       .maybeSingle();
@@ -208,28 +215,52 @@ export async function POST(request: Request) {
           state: rqRow.state as ReviewQueueState["state"],
           reps: rqRow.reps,
           lapses: rqRow.lapses,
-          lastIntervalDays: rqRow.stability !== null ? Number(rqRow.stability) : undefined,
+          stability: rqRow.stability !== null ? Number(rqRow.stability) : 0,
+          difficulty: rqRow.difficulty !== null ? Number(rqRow.difficulty) : 0,
+          lastReviewAt: rqRow.last_review_at ? new Date(rqRow.last_review_at) : null,
         }
       : null;
 
-    const nextReview = nextReviewState(currentReview, result.correct);
+    const now = new Date();
+    const nextReview = nextReviewState(currentReview, result.correct, now);
+    const dueAt = applyExamProximityCompression(nextReview.dueAt, now, daysUntilExam);
 
     await admin.from("review_queue").upsert(
       {
         user_id: appUser.id,
         skill_tag_id: skillTagId,
-        due_at: nextReview.dueAt.toISOString(),
+        due_at: dueAt.toISOString(),
         state: nextReview.state,
         reps: nextReview.reps,
         lapses: nextReview.lapses,
-        stability: nextReview.lastIntervalDays ?? null,
+        stability: nextReview.stability,
+        difficulty: nextReview.difficulty,
+        last_review_at: nextReview.lastReviewAt?.toISOString() ?? null,
       },
       { onConflict: "user_id,skill_tag_id" }
     );
   }
 
   if (daily_mission_item_id) {
-    await admin.from("daily_mission_items").update({ attempt_id: attempt.id }).eq("id", daily_mission_item_id);
+    const { data: item } = await admin
+      .from("daily_mission_items")
+      .update({ attempt_id: attempt.id })
+      .eq("id", daily_mission_item_id)
+      .select("daily_mission_id")
+      .single();
+
+    if (item) {
+      const { data: siblings } = await admin
+        .from("daily_mission_items")
+        .select("attempt_id")
+        .eq("daily_mission_id", item.daily_mission_id);
+      const allAnswered = (siblings ?? []).every((s) => s.attempt_id !== null);
+
+      await admin
+        .from("daily_missions")
+        .update({ status: allAnswered ? "completed" : "in_progress" })
+        .eq("id", item.daily_mission_id);
+    }
   }
 
   return NextResponse.json(
